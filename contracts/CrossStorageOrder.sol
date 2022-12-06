@@ -2,19 +2,22 @@
 pragma solidity >=0.8.12;
 
 // Import this file to use console.log
-import "./Xtokens.sol";
-import "./XcmTransactor.sol";
+import "./Xcm.sol";
 
 contract CrossStorageOrder {
-    // https://docs.moonbeam.network/builders/xcm/xc20/mintable-xc20/
-    address internal constant CSM_ADDRESS = 0xffFfFFFf519811215E05eFA24830Eebe9c43aCD7;
-    address internal constant MOVR_ADDRESS = 0x0000000000000000000000000000000000000802;
+    // https://docs.astar.network/docs/xcm/building-with-xcm/xc-reserve-transfer/
+    address internal constant SDN_ADDRESS = 0x0000000000000000000000000000000000000000;
 
-    XcmTransactorV2 xcmtransactor = XcmTransactorV2(0x000000000000000000000000000000000000080D);
-    Xtokens xtokens = Xtokens(0x0000000000000000000000000000000000000804);
+    // https://github.com/AstarNetwork/Astar/blob/c358aa710fe6a498b4c56b0ddf1da322b21c524b/runtime/shiden/src/precompiles.rs#L92
+    XCM xcmtransactor = XCM(0x0000000000000000000000000000000000005004);
 
     address payable public owner;
-    string public corr_address;
+    // Since the evm address -> polkadot address convertor is decided by Astar,
+    // we need know the corresponding polkadot address of this contract after the deployment.
+    // Here is a helper page to do the convertor.
+    // https://hoonsubin.github.io/evm-substrate-address-converter/
+    // Then you can use subkey to get the AccountID32 and set it through this.set_address function.
+    bytes32 public corr_address;
 
     constructor() {
         owner = payable(msg.sender);
@@ -90,9 +93,13 @@ contract CrossStorageOrder {
 
     function buildCallBytes(string memory cid, uint64 size) internal pure returns (bytes memory) {
         bytes memory prefix = new bytes(2);
+        // storage pallet index
         prefix[0] = bytes1(uint8(127));
+        // storage call index
         prefix[1] = bytes1(uint8(0));
+        // ipfs cid
         bytes memory cidBytes = toScaleString(cid);
+        // ipfs file size
         bytes memory sizeBytes = toBytes(size);
         bytes memory rst = bytes.concat(prefix, cidBytes, sizeBytes);
         return rst;
@@ -125,46 +132,32 @@ contract CrossStorageOrder {
     }
 
     // set the correponding address on crust shadow of this contract
-    // and transfer some MOVR to this contract
     function set_address(string memory addr) public {
-        corr_address = addr;
+        corr_address = bytes32(fromHex(addr));
     }
 
     function placeCrossChainOrder(string memory cid, uint64 size) public {
-        // This should be calculated according to the settings of one storage order
-        uint256 pre_send_amount = 1000100000;
+        uint256 parachain_id = 2012;
+        uint256 pre_send_amount = 1000000000000000;
+        // Transfer the SDN through XCMP
+        address[] memory asset_id = new address[](1);
+        asset_id[0] = SDN_ADDRESS;
+        uint256[] memory asset_amount = new uint256[](1);
+        asset_amount[0] = pre_send_amount;
+        uint256 fee_index = 0;
+        xcmtransactor.assets_reserve_transfer(asset_id, asset_amount, corr_address, false, parachain_id, fee_index);
 
-        // https://docs.moonbeam.network/builders/xcm/xcm-transactor/
-        bytes[] memory interior = new bytes[](2);
-        interior[0] = fromHex("00000007DC"); // Selector Parachain, ID = 2012 (Crust Shadow Alpha)
-        string memory concatAccountId32 = string.concat("01",corr_address,"00");
-        interior[1] = fromHex(concatAccountId32); // AccountId32
-        Xtokens.Multilocation memory derived_account = Xtokens.Multilocation(
-            1, 
-            interior
-        );
-        uint64 xtoken_weight = 5000000000;
-        // Transfer the MOVR
-        xtokens.transfer(MOVR_ADDRESS, pre_send_amount, derived_account, xtoken_weight);
-
-        // Call the xcm transactor
-        bytes[] memory chainDest = new bytes[](1);
-        chainDest[0] = fromHex("00000007DC"); // Selector Parachain, ID = 2012 (Crust Shadow Alpha)
-        XcmTransactorV2.Multilocation memory dest = XcmTransactorV2.Multilocation(
-            1,
-            chainDest
-        );
-        uint64 transactRequiredWeightAtMost = 4000000000;
+        // Place cross chain storage order
         uint256 feeAmount = 8000;
         uint64 overallWeight = 8000000000;
         // cid: HiMoonbaseSC, size: 1024
         bytes memory call_data = buildCallBytes(cid, size);
-        xcmtransactor.transactThroughSigned(
-            dest,
-            MOVR_ADDRESS,
-            transactRequiredWeightAtMost,
-            call_data,
+        xcmtransactor.remote_transact(
+            parachain_id,
+            false,
+            SDN_ADDRESS,
             feeAmount,
+            call_data,
             overallWeight
         );
     }
