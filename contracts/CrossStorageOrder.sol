@@ -138,7 +138,7 @@ contract CrossStorageOrder {
 
     function placeCrossChainOrder(string memory cid, uint64 size) public {
         uint256 parachain_id = 2012;
-        uint256 pre_send_amount = 1000000000000000;
+        uint256 pre_send_amount = 100000000000000;
         // Transfer the SDN through XCMP
         address[] memory asset_id = new address[](1);
         asset_id[0] = SDN_ADDRESS;
@@ -148,7 +148,7 @@ contract CrossStorageOrder {
         xcmtransactor.assets_reserve_transfer(asset_id, asset_amount, corr_address, false, parachain_id, fee_index);
 
         // Place cross chain storage order
-        uint256 feeAmount = 8000;
+        uint256 feeAmount = 10000000000000;
         uint64 overallWeight = 8000000000;
         // cid: HiMoonbaseSC, size: 1024
         bytes memory call_data = buildCallBytes(cid, size);
